@@ -51,3 +51,13 @@ func isAllNumeric(s string) bool {
 	}
 	return true
 }
+
+func sliceToSet(slice []string) map[string]bool {
+	// there's no set type in Go, so instead we'll use a mapping of {key: bool}
+	// this allows us to check whether `set[key]` is found & is `true`
+	set := make(map[string]bool)
+	for _, v := range slice {
+		set[v] = true
+	}
+	return set
+}
