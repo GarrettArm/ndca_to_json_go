@@ -1,56 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 	"unicode"
-
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
 )
 
-func readWindowFile(filename string) []string {
-	// reads a windows 1252 encoded file
-	// outputs the full text, split into lines
-	file, err := os.Open(filename)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	decodingReader := transform.NewReader(file, charmap.Windows1252.NewDecoder())
-	lines := []string{}
-
-	scanner := bufio.NewScanner(decodingReader)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines
-}
-
-func findSeniorCollegesLines(textLines []string) []int {
-	l := []int{}
-	for n, v := range textLines {
-		if strings.Trim(v, " ") == "SENIOR COLLEGES" {
-			l = append(l, n)
-		}
-	}
-	return l
-}
-
-func getBody(textLines []string, seniorCollegesLines []int) []string {
-	start := seniorCollegesLines[0]
-	end := seniorCollegesLines[1]
-	body := textLines[start:end]
-	return body
-}
-
-type collegeBlock struct {
-	CollegeName  string                       `json:"collegeName"`
+type college struct {
+	Name         string                       `json:"Name"`
 	SingleLiners map[string]string            `json:"SingleLiners"`
 	MultiLiners  map[string]map[string]string `json:"MultiLiners"`
 	startLineNum int
@@ -59,18 +19,22 @@ type collegeBlock struct {
 	UnusedText   []string `json:"UnusedText"`
 }
 
-func getColleges(body []string) []collegeBlock {
-	// creates a collegeBlock struct for each parsable college in the ocr's body
-	// fills out their 'collegeName' and 'startLineNum'
+type book struct {
+	colleges []college
+}
+
+func getColleges(body []string) []college {
+	// creates a college struct for each parsable college in the ocr's body
+	// fills out their 'Name' and 'startLineNum'
 	// leaves the 'endLineNum' and 'text' as null values for later function to fill in
-	allColleges := []collegeBlock{}
+	allColleges := []college{}
 	for lineNum, lineText := range body {
 		trimmed := strings.TrimFunc(lineText, func(r rune) bool {
 			return !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsPunct(r)
 		})
 		if isAllUpper(trimmed) {
-			c := collegeBlock{
-				CollegeName:  trimmed,
+			c := college{
+				Name:         trimmed,
 				startLineNum: lineNum,
 				SingleLiners: make(map[string]string),
 				MultiLiners:  make(map[string]map[string]string),
@@ -82,8 +46,8 @@ func getColleges(body []string) []collegeBlock {
 	return allColleges
 }
 
-func addEnds(colleges []collegeBlock, body []string) {
-	// fills in collegeBlock.endLineNum, using next item in the colleges list
+func addEnds(colleges []college, body []string) {
+	// fills in college.endLineNum, using next item in the colleges list
 	for n, college := range colleges {
 		if n == 0 {
 			continue
@@ -93,8 +57,8 @@ func addEnds(colleges []collegeBlock, body []string) {
 	colleges[len(colleges)-1].endLineNum = len(body)
 }
 
-func (c *collegeBlock) addText(body []string) {
-	// fills in the collegeBlock.text field
+func (c *college) addText(body []string) {
+	// fills in the college.text field
 	// reads the OCR body lines, then filters garbage lines
 	var accumulate []string
 	for _, line := range body[c.startLineNum:c.endLineNum] {
@@ -116,58 +80,11 @@ func (c *collegeBlock) addText(body []string) {
 	c.Text = accumulate
 }
 
-func isAllUpper(s string) bool {
-	// identifies lines that are all uppercase
-	// assumed to be college names & the start of a college block
-	if len(s) == 0 {
-		return false
-	}
-	// fail a string with any lowercase letters
-	if strings.ToUpper(s) != s {
-		return false
-	}
-	// fail a string that has a number in it
-	for _, v := range s {
-		if unicode.IsDigit(v) {
-			return false
-		}
-	}
-	// fail a string with any character that's neither a space, a letter, or a puctuation mark
-	for _, v := range s {
-		if !(unicode.IsLetter(v) || unicode.IsSpace(v) || unicode.IsPunct(v)) {
-			return false
-		}
-	}
-	// fail a string that doesn't have at least one letter
-	hasLetter := false
-	for _, v := range s {
-		if unicode.IsLetter(v) {
-			hasLetter = true
-		}
-	}
-	if !hasLetter {
-		return false
-	}
-
-	return true
-}
-
-func isAllNumeric(s string) bool {
-	// identifies lines that are all numeric
-	// assumed to be page numbers in OCR text
-	for _, v := range s {
-		if !unicode.IsDigit(v) {
-			return false
-		}
-	}
-	return true
-}
-
-func (c *collegeBlock) addSingleLiners() {
-	// converts some lines in collegeBlock.text into key:value
+func (c *college) addSingleLiners() {
+	// converts some lines in college.text into key:value
 	// SINGLE_LINERS is a matchlist of expected keys
 	// if you split the text line on "-" and the first portion is in SINGLE_LINERS
-	// then the collegeBlock.SingleLiners[SINGLE_LINER] = second portion
+	// then the college.SingleLiners[SINGLE_LINER] = second portion
 	SINGLE_LINERS := []string{
 		"Affiliation",
 		"Conference",
@@ -206,12 +123,12 @@ func (c *collegeBlock) addSingleLiners() {
 	}
 }
 
-func (c *collegeBlock) addMultiLiners() {
-	// converts some lines in collegeBlock.text into key:role:value
+func (c *college) addMultiLiners() {
+	// converts some lines in college.text into key:role:value
 	// MULTI_LINERS is a matchlist of expected keys
 	// ROLES is a matchlist of expected roles
 	// if you split the text line on "-" and the first portion is in MULTI_LINERS
-	// then a collegeBlock[MULTI_LINER] = {"Lead": value, }
+	// then a college[MULTI_LINER] = {"Lead": value, }
 	// and the next lines are added to the map
 	MULTI_LINERS := []string{
 		"Football",
@@ -271,7 +188,7 @@ func (c *collegeBlock) addMultiLiners() {
 	c.MultiLiners = parseSecondLayer(clump, c)
 }
 
-func parseSecondLayer(clump map[string][]string, c *collegeBlock) map[string]map[string]string {
+func parseSecondLayer(clump map[string][]string, c *college) map[string]map[string]string {
 	ROLES := []string{
 		"Asst.",
 		"Assoc.",
@@ -318,7 +235,7 @@ func parseSecondLayer(clump map[string][]string, c *collegeBlock) map[string]map
 	return allSports
 }
 
-func removeFromUnprocessed(c *collegeBlock, usedLine string) {
+func removeFromUnprocessed(c *college, usedLine string) {
 	// remove one elem from the c.UsedText slice
 	// return out of function immediately, to avoid removing two identical elements
 	for count, line := range c.UnusedText {
