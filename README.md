@@ -2,6 +2,14 @@
 
 A Go port of a python OCR parser.  Accepts a specialized OCR text format, then outputs a json file.
 
+#### run the compiled program:
+
+   - Download the latest release from https://github.com/GarrettArm/ndca_to_json_go/releases
+   - Place the executable file into some folder, then create a new folder "source-data" within that folder.
+   - Place the file "ndca_2007_08_tesseract_full_vol_read.txt" into that "source-data" folder.
+   - Run the "ncda-to-json" program you downloaded in step 1.
+   - See the newly created file "output.json" in the folder.  (Firefox is a good json reader)
+
 #### run the script without compiling:
 
 install go on your computer, then:
